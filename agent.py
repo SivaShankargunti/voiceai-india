@@ -1,55 +1,131 @@
 """
-India SME Voice AI Agent — Session 1 (Fixed)
-Uses: Gemini (LLM) + Deepgram (STT + TTS)
+India SME Voice AI Agent — V2
+Now loads business config from backend + uses industry templates
 """
 
 import os
+import httpx
 from dotenv import load_dotenv
 
 from livekit import agents
 from livekit.agents import AgentSession, Agent
 from livekit.plugins import openai, silero, deepgram
 
+from agent.templates import get_template
+
 load_dotenv()
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 
 class IndiaSMEAgent(Agent):
-    def __init__(self):
-        super().__init__(
-            instructions="""You are a friendly AI voice assistant for Indian small businesses.
+    """Voice AI agent that adapts per business using templates."""
 
-LANGUAGE RULES:
-- You speak Hindi and English naturally
-- If the user speaks Hindi, reply in Hindi
-- If the user speaks English, reply in English
-- You can mix Hindi-English (Hinglish) naturally
-- Keep every response UNDER 25 words (this is voice, not text!)
+    def __init__(self, business_config: dict):
+        self.business = business_config
+        template = get_template(business_config.get("industry", "general"))
 
-BEHAVIOR:
-- Be warm and polite
-- You help with: booking appointments, answering FAQs, taking messages
-- If unsure, say: Main aapko humari team se connect karta hoon
-- If someone says stop or band karo — say goodbye politely
+        # Build the system prompt from template + business info
+        system_prompt = template["system_prompt"].format(
+            business_name=business_config.get("name", "our business"),
+            language=business_config.get("language", "Hindi and English"),
+        )
 
-COMPLIANCE:
-- Identify yourself as an AI assistant
+        # Add compliance rules to every agent
+        system_prompt += """
+
+COMPLIANCE (ALWAYS FOLLOW):
+- You are an AI assistant — ALWAYS identify yourself as AI at the start
+- If caller says "stop", "band karo", "ruko", "don't call" — say goodbye immediately
 - Never give medical, legal, or financial advice
+- Never share personal information of any caller
+- If unsure about anything: offer to connect to a human
 """
+
+        super().__init__(instructions=system_prompt)
+        self.greeting = template["greeting"].format(
+            business_name=business_config.get("name", "our business"),
         )
 
     async def on_user_turn_completed(self, chat_ctx, new_message):
         if new_message.text_content:
-            print(f"  User said: {new_message.text_content}")
+            text = new_message.text_content
+            print(f"  User said: {text}")
+
+            # Check for opt-out keywords
+            opt_out_words = ["stop", "band karo", "ruko", "mat karo", "don't call"]
+            if any(word in text.lower() for word in opt_out_words):
+                print("  [COMPLIANCE] Opt-out detected!")
+
+            # Log call to backend (non-blocking)
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        f"{BACKEND_URL}/api/business/{self.business.get('id', 'unknown')}/calls/log",
+                        json={
+                            "contact_phone": "unknown",
+                            "duration_seconds": 0,
+                            "outcome": "in_progress",
+                            "call_type": "service",
+                            "direction": "inbound",
+                            "transcript": text,
+                        },
+                        timeout=2.0,
+                    )
+            except Exception:
+                pass  # Don't break the call if logging fails
+
+
+async def fetch_business_config(room_name: str) -> dict:
+    """
+    Fetch business config from backend based on room metadata.
+    In production: room name maps to a business ID.
+    For now: use a default config or fetch from backend.
+    """
+    # Try to extract business_id from room name
+    # Format: "biz_xxxxx_room" or just use default
+    try:
+        async with httpx.AsyncClient() as client:
+            # Try to get business list and use the first one
+            resp = await client.get(f"{BACKEND_URL}/api/businesses", timeout=3.0)
+            if resp.status_code == 200:
+                businesses = resp.json()
+                if businesses:
+                    # Get full details of first business
+                    biz_id = businesses[0]["id"]
+                    detail_resp = await client.get(
+                        f"{BACKEND_URL}/api/business/{biz_id}", timeout=3.0
+                    )
+                    if detail_resp.status_code == 200:
+                        return detail_resp.json()
+    except Exception as e:
+        print(f"  Could not fetch from backend: {e}")
+
+    # Fallback default config
+    return {
+        "id": "default",
+        "name": "Demo Business",
+        "industry": "general",
+        "language": "Hindi and English",
+    }
 
 
 async def entrypoint(ctx: agents.JobContext):
     await ctx.connect()
     print("Connected to LiveKit room!")
+    print(f"Room: {ctx.room.name}")
+
+    # Fetch business config from backend
+    business_config = await fetch_business_config(ctx.room.name)
+    print(f"Loaded business: {business_config.get('name')} ({business_config.get('industry')})")
+
+    # Create the agent with business-specific template
+    india_agent = IndiaSMEAgent(business_config)
 
     session = AgentSession(
         stt=deepgram.STT(
             model="nova-3",
-            language="hi",
+            language=business_config.get("language", "hi")[:2],  # "hi" or "en"
         ),
         llm=openai.LLM(
             model="gemini-2.5-flash",
@@ -62,10 +138,10 @@ async def entrypoint(ctx: agents.JobContext):
 
     await session.start(
         room=ctx.room,
-        agent=IndiaSMEAgent(),
+        agent=india_agent,
     )
 
-    print("Agent is ready!")
+    print(f"Agent ready! Template: {business_config.get('industry')}")
 
 
 if __name__ == "__main__":

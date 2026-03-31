@@ -2306,6 +2306,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "livekit-agents" },
     { name = "livekit-plugins-deepgram" },
     { name = "livekit-plugins-openai" },
@@ -2319,6 +2320,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.135.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "livekit-agents", specifier = ">=1.5.1" },
     { name = "livekit-plugins-deepgram", specifier = ">=1.5.1" },
     { name = "livekit-plugins-openai", specifier = ">=1.5.1" },

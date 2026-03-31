@@ -254,6 +254,26 @@ async def get_analytics(business_id: str):
     analytics["minutes_limit"] = biz["monthly_minutes_limit"]
     return analytics
 
+# ===== ROUTES: TEMPLATES =====
+
+@app.get("/api/templates")
+async def get_templates():
+    """List all available industry templates for dashboard."""
+    from agent.templates import list_templates
+    return list_templates()
+
+@app.get("/api/templates/{industry}")
+async def get_template_detail(industry: str):
+    """Get a specific industry template."""
+    from agent.templates import get_template
+    template = get_template(industry)
+    return {
+        "id": template["id"],
+        "name": template["name"],
+        "description": template["description"],
+        "greeting": template["greeting"],
+    }
+
 
 # ===== RUN =====
 
