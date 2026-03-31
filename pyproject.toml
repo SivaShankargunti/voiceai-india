@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.135.2",
     "livekit-agents>=1.5.1",
     "livekit-plugins-deepgram>=1.5.1",
     "livekit-plugins-openai>=1.5.1",
     "livekit-plugins-silero>=1.5.1",
     "livekit-plugins-turn-detector>=1.5.1",
     "python-dotenv>=1.2.2",
+    "pytz>=2026.1.post1",
+    "uvicorn>=0.42.0",
 ]
